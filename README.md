@@ -1,3 +1,11 @@
-# grupo_6
+# Grupo 6
 
-Grupo 6
+### Integrantes:
+
+| Nombre y Apellido              |      Mail                      |     usuario Gitlab   |
+| -----------------------------  | ------------------------------ | -------------------  |
+|                                |                                |                      |
+|                                |                                |                      |
+
+
+
