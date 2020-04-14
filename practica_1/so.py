@@ -74,3 +74,7 @@ class Kernel():
 
     def __repr__(self):
         return "Kernel "
+
+    def executeBatch (self, lsProgram):
+        for p in lsProgram:
+            self.run(p)
