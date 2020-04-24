@@ -3,3 +3,6 @@
 | Maximiliano Tarnovski | maxitarnovski@gmail.com  | Tarnomax       |
 | Federico Cameriere    | fede.cameriere@gmail.com | fedecame       |
 
+# Practica 1
+
+OK

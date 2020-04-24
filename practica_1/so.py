@@ -76,5 +76,6 @@ class Kernel():
         return "Kernel "
 
     def executeBatch (self, lsProgram):
+        log.logger.info("\n Executing batch programs: ")
         for p in lsProgram:
             self.run(p)
