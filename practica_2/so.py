@@ -3,8 +3,6 @@
 from hardware import *
 import log
 
-
-
 ## emulates a compiled program
 class Program():
 
@@ -64,7 +62,11 @@ class KillInterruptionHandler(AbstractInterruptionHandler):
     def execute(self, irq):
         log.logger.info(" Program Finished ")
         # por ahora apagamos el hardware porque estamos ejecutando un solo programa
-        HARDWARE.switchOff()
+
+        if (self.kernel.hasPendingPrograms()):
+            self.kernel.runNextProgram()
+        else:
+            HARDWARE.switchOff()
 
 
 # emulates the core of an Operative System
@@ -72,8 +74,13 @@ class Kernel():
 
     def __init__(self):
         ## setup interruption handlers
+        self._programList = []
         killHandler = KillInterruptionHandler(self)
         HARDWARE.interruptVector.register(KILL_INTERRUPTION_TYPE, killHandler)
+
+    @property
+    def programList(self):
+        return self._programList
 
     def load_program(self, program):
         # loads the program in main memory  
@@ -94,3 +101,15 @@ class Kernel():
 
     def __repr__(self):
         return "Kernel "
+
+    def runNextProgram (self):
+        self.run(self.programList.pop(0))
+
+    def hasPendingPrograms (self):
+        return len(self.programList) > 0
+
+    def executeBatch (self, lsProgram):
+        log.logger.info("\n Executing batch programs: ")
+
+        self._programList = lsProgram
+        self.runNextProgram()
