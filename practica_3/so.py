@@ -39,7 +39,6 @@ class Program():
         if not ASM.isEXIT(last):
             expanded.append(INSTRUCTION_EXIT)
 
-        print("progroma expandido" , expanded)
         return expanded
 
     def __repr__(self):

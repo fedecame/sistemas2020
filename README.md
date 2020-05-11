@@ -6,3 +6,7 @@
 # Practica 1
 
 OK
+
+# Practica 2
+
+OK
