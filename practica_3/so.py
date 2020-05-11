@@ -39,7 +39,6 @@ class Program():
         if not ASM.isEXIT(last):
             expanded.append(INSTRUCTION_EXIT)
 
-        print("progroma expandido" , expanded)
         return expanded
 
     def __repr__(self):
@@ -123,7 +122,7 @@ class ReadyQueue():
         self._queue.append(pcb)
     
     def dequeue(self):
-        self._queue.pop(0)
+        return self._queue.pop(0)
 
     def isEmpty(self):
         return len(self._queue) == 0
@@ -199,7 +198,7 @@ class KillInterruptionHandler(AbstractInterruptionHandler):
     def execute(self, irq):
         log.logger.info(" Program Finished ")
         pcbTable = self.kernel.pcbTable
-        pcbTerminated = pcbTable.runningPCB()
+        pcbTerminated = pcbTable.runningPCB
         self.kernel.dispatcher.save(pcbTerminated)
         pcbTerminated.state = "TERMINATED"
         pcbTable.remove(pcbTerminated.id)
@@ -215,7 +214,7 @@ class IoInInterruptionHandler(AbstractInterruptionHandler):
 
     def execute(self, irq):
         operation = irq.parameters
-        pcb = self.kernel.pcbTable.runningPCB()
+        pcb = self.kernel.pcbTable.runningPCB
         self.kernel.dispatcher.save(pcb)
         pcb.state = "WAITING"
         self.kernel.ioDeviceController.runOperation(pcb, operation)
@@ -224,7 +223,7 @@ class IoInInterruptionHandler(AbstractInterruptionHandler):
         if (not readyQueue.isEmpty()):
             nextPcb = readyQueue.dequeue()
             nextPcb.state = "RUNNING"
-            pcbTable.runningPCB = nextPcb
+            self.kernel.pcbTable.runningPCB = nextPcb
             self.kernel.dispatcher.load(nextPcb)
         else:   
             self.kernel.pcbTable.runningPCB = None     
@@ -238,8 +237,8 @@ class IoOutInterruptionHandler(AbstractInterruptionHandler):
         pcb = self.kernel.ioDeviceController.getFinishedPCB()
 
         readyQueue = self.kernel.readyQueue
-        pcbTable = self.kernel.pcbTable()
-        if (pcbTable.runningPCB() is None):
+        pcbTable = self.kernel.pcbTable
+        if (pcbTable.runningPCB is None):
             pcb.state = "RUNNING"
             self.kernel.dispatcher.load(pcb)
             pcbTable.runningPCB = pcb
@@ -262,10 +261,8 @@ class Loader():
         self._baseDir = self._nextPC
 
         self._nextPC = self._baseDir + progSize
-        print("nextPC: ", self._nextPC)
-        print("baseDir: ", self._baseDir)
-        for index in range(0, 3):
-            inst = program.instructions[index]
+        for index in range(self._baseDir, self._nextPC):
+            inst = program.instructions[index-self._baseDir]
             HARDWARE.memory.write(index, inst)
         
         return self._baseDir
@@ -327,13 +324,6 @@ class Kernel():
 
     ## emulates a "system call" for programs execution
     def run(self, program):
-        #self._loader.load(program)
-
-        
-
-        # set CPU program counter at program's first intruction
-        HARDWARE.cpu.pc = 0
-
         self.newIRQ = IRQ(NEW_INTERRUPTION_TYPE, program)
         HARDWARE.interruptVector.handle(self.newIRQ)
 

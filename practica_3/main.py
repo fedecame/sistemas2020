@@ -11,7 +11,7 @@ if __name__ == '__main__':
     log.logger.info('Starting emulator')
 
     ## setup our hardware and set memory size to 25 "cells"
-    HARDWARE.setup(10)
+    HARDWARE.setup(65)
 
   
 
@@ -28,6 +28,9 @@ if __name__ == '__main__':
 
     
     # execute the program
+    kernel.run(prg)
+    kernel.run(prg1)
+    kernel.run(prg2)
     kernel.run(prg3)
 
     ## Switch on computer
