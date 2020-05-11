@@ -219,6 +219,7 @@ class IoInInterruptionHandler(AbstractInterruptionHandler):
         pcb.state = "WAITING"
         self.kernel.ioDeviceController.runOperation(pcb, operation)
         
+        pcbTable = self.kernel.pcbTable
         readyQueue = self.kernel.readyQueue
         if (not readyQueue.isEmpty()):
             nextPcb = readyQueue.dequeue()
