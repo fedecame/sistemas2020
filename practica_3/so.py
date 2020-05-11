@@ -3,6 +3,12 @@
 from hardware import *
 import log
 
+#PCB STATES
+NEW_STATE = "NEW"
+READY_STATE = "READY"
+RUNNING_STATE = "RUNNING"
+WAITING_STATE = "WAITING"
+TERMINATED_STATE = "TERMINATED"
 
 
 ## emulates a compiled program
@@ -50,7 +56,7 @@ class PCB():
         self._id = id
         self._baseDir = baseDir
         self._path = path
-        self._estado = "NEW"
+        self._estado = NEW_STATE
         self._pc = 0
 
     @property
@@ -186,11 +192,11 @@ class NewInterruptionHandler(AbstractInterruptionHandler):
         pcbTable.add(pcb)
 
         if (pcbTable.runningPCB is None):
-            pcb.state = "RUNNING"
+            pcb.state = RUNNING_STATE
             pcbTable.runningPCB = pcb
             self.kernel.dispatcher.load(pcb)
         else:
-            pcb.state = "READY"
+            pcb.state = READY_STATE
             self.kernel.readyQueue.enqueue(pcb)
 
 class KillInterruptionHandler(AbstractInterruptionHandler):
@@ -200,13 +206,13 @@ class KillInterruptionHandler(AbstractInterruptionHandler):
         pcbTable = self.kernel.pcbTable
         pcbTerminated = pcbTable.runningPCB
         self.kernel.dispatcher.save(pcbTerminated)
-        pcbTerminated.state = "TERMINATED"
+        pcbTerminated.state = TERMINATED_STATE
         pcbTable.remove(pcbTerminated.id)
 
         readyQueue = self.kernel.readyQueue
         if (not readyQueue.isEmpty()):
             nextPcb = readyQueue.dequeue()
-            nextPcb.state = "RUNNING"
+            nextPcb.state = RUNNING_STATE
             pcbTable.runningPCB = nextPcb
             self.kernel.dispatcher.load(nextPcb)
 
@@ -216,15 +222,15 @@ class IoInInterruptionHandler(AbstractInterruptionHandler):
         operation = irq.parameters
         pcb = self.kernel.pcbTable.runningPCB
         self.kernel.dispatcher.save(pcb)
-        pcb.state = "WAITING"
+        pcb.state = WAITING_STATE
         self.kernel.ioDeviceController.runOperation(pcb, operation)
         
         pcbTable = self.kernel.pcbTable
         readyQueue = self.kernel.readyQueue
         if (not readyQueue.isEmpty()):
             nextPcb = readyQueue.dequeue()
-            nextPcb.state = "RUNNING"
-            self.kernel.pcbTable.runningPCB = nextPcb
+            nextPcb.state = RUNNING_STATE
+            pcbTable.runningPCB = nextPcb
             self.kernel.dispatcher.load(nextPcb)
         else:   
             self.kernel.pcbTable.runningPCB = None     
@@ -240,11 +246,11 @@ class IoOutInterruptionHandler(AbstractInterruptionHandler):
         readyQueue = self.kernel.readyQueue
         pcbTable = self.kernel.pcbTable
         if (pcbTable.runningPCB is None):
-            pcb.state = "RUNNING"
+            pcb.state = RUNNING_STATE
             self.kernel.dispatcher.load(pcb)
             pcbTable.runningPCB = pcb
         else:
-            pcb.state = "READY"
+            pcb.state = READY_STATE
             readyQueue.enqueue(pcb)
 
         log.logger.info(self.kernel.ioDeviceController)
@@ -330,5 +336,7 @@ class Kernel():
 
         log.logger.info("\n Executing program: {name}".format(name=program.name))
         log.logger.info(HARDWARE)
-    def __repr__(self):
-        return "Kernel "
+        
+
+        def __repr__(self):
+            return "Kernel "
