@@ -224,7 +224,7 @@ class IoInInterruptionHandler(AbstractInterruptionHandler):
         if (not readyQueue.isEmpty()):
             nextPcb = readyQueue.dequeue()
             nextPcb.state = "RUNNING"
-            pcbTable.runningPCB = nextPcb
+            self.kernel.pcbTable.runningPCB = nextPcb
             self.kernel.dispatcher.load(nextPcb)
         else:   
             self.kernel.pcbTable.runningPCB = None     
@@ -262,9 +262,7 @@ class Loader():
         self._baseDir = self._nextPC
 
         self._nextPC = self._baseDir + progSize
-        print("progSiza" , progSize)
-
-        for index in range(self._baseDir,self._nextPC):
+        for index in range(self._baseDir, self._nextPC):
             inst = program.instructions[index-self._baseDir]
             HARDWARE.memory.write(index, inst)
         
@@ -327,13 +325,6 @@ class Kernel():
 
     ## emulates a "system call" for programs execution
     def run(self, program):
-        self._loader.load(program)
-
-        
-
-        # set CPU program counter at program's first intruction
-        #HARDWARE.cpu.pc = 0
-
         self.newIRQ = IRQ(NEW_INTERRUPTION_TYPE, program)
         HARDWARE.interruptVector.handle(self.newIRQ)
 
