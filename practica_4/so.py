@@ -52,12 +52,14 @@ class Program():
 
 class PCB():
 
-    def __init__(self, id, baseDir, path):
+    def __init__(self, id, baseDir, path, priority = None):
         self._id = id
         self._baseDir = baseDir
         self._path = path
         self._estado = NEW_STATE
         self._pc = 0
+        self._priority = priority
+        self._burstTime = 0 #tiempo que esta en la ready queue
 
     @property
     def id(self):
@@ -90,6 +92,18 @@ class PCB():
     @pc.setter
     def pc(self, pc):
         self._pc = pc
+
+    @property
+    def priority(self):
+        return self._priority
+
+    @property
+    def burstTime(self):
+        return self._burstTime
+
+    @burstTime.setter
+    def burstTime(self, burstTime):
+        self._burstTime = burstTime
 
 class PCBTable():
     
@@ -164,13 +178,58 @@ class FCFS(SchedulerType):
 class NonPreemptive(SchedulerType):
 
     def __init__(self, priorityAmount):
+        HARDWARE.clock.addSubscriber(self)
         self._priorityAmount = priorityAmount
-        self._readyQueue = []
-        for n in range(priorityAmount):
-            self._readyQueue.append([])
+        self._readyQueue2 = []
+        self.subtarea()
+
+    def subtarea(self):
+        for n in range(self._priorityAmount):
+            self._readyQueue2.append([])
 
     def add(self, pcb):
-        self._readyQueue.enqueue(pcb)
+        # self._readyQueue2.enqueue(pcb)
+        self._readyQueue2[pcb.priority-1].append(pcb)
+
+    # revisar si retorna None cuando no hay pcbs en las listas
+    # revisar si el return funciona como break tmb
+    def getNext(self):
+        for ls in self._readyQueue2:
+            if len(ls) > 0:
+                return ls.pop()
+
+    def tick(self, tickNbr):
+        for index in range(1, self._priorityAmount):
+            for pcb2 in self._readyQueue2[index]:
+                pcb2.burstTime += 1
+                if pcb2.burstTime >= 3:
+                    #reseteo tiempo de espera
+                    pcb2.burstTime = 0
+                    #swap de lista a una de mayor prioridad
+                    #alias "agePcb2"
+                    self._readyQueue2[index-1].append(pcb2)
+                    self._readyQueue2[index].remove(pcb2)
+
+            # for pcb in self._readyQueue[index]:
+            #     pcb.burstTime += 1
+            #     if pcb.burstTime >= 3:
+            #         #reseteo tiempo de espera
+            #         pcb.burstTime = 0
+            #         #swap de lista a una de mayor prioridad
+            #         #alias "agePcb"
+            #         self._readyQueue[index-1].append(pcb)
+            #         self._readyQueue[index].remove(pcb)
+
+    # def addTick(self):
+    #     self._ticksPassed += 1
+    #     # aumentar a todos los pcbs 1 tick de espera
+    #     if (self._ticksPassed == 2):
+    #         # aumentar prioridad (de aging) de todos los pcbs que hayan estado 2 ticks
+    #         self._ticksPassed = 0
+
+    # def addTick2(self):
+        # aumentar a todos los pcbs 1 tick de espera
+        # en cada pcb le pregunto si espero 3, aumentar prioridad (de aging) y resetear el tiempo de espera
 
 class ReadyQueue():
 
@@ -238,10 +297,11 @@ class NewInterruptionHandler(AbstractInterruptionHandler):
     def execute(self, irq):
         pcbTable = self.kernel.pcbTable
         log.logger.info(" Program started ")
-        program = irq.parameters
+        program = irq.parameters[0]
+        priority = irq.parameters[1]
         baseDir = self.kernel.loader.load(program)
         pcbId = pcbTable.getNewPID()
-        pcb = PCB(pcbId, baseDir, program.name)
+        pcb = PCB(pcbId, baseDir, program.name, priority)
         pcbTable.add(pcb)
 
         if (pcbTable.runningPCB is None):
@@ -271,7 +331,7 @@ class KillInterruptionHandler(AbstractInterruptionHandler):
 class IoInInterruptionHandler(AbstractInterruptionHandler):
 
     def execute(self, irq):
-        operation = irq.parameters
+        operation = irq.parameters[0]
         pcb = self.kernel.pcbTable.runningPCB
         self.kernel.dispatcher.save(pcb)
         pcb.state = WAITING_STATE
@@ -333,7 +393,6 @@ class Dispatcher():
         pcb.pc = HARDWARE.cpu.pc
         HARDWARE.cpu.pc = -1
 
-
 # emulates the core of an Operative System
 class Kernel():
 
@@ -387,8 +446,8 @@ class Kernel():
         self._scheduler = Scheduler(self, schedulerType)
 
     ## emulates a "system call" for programs execution
-    def run(self, program):
-        self.newIRQ = IRQ(NEW_INTERRUPTION_TYPE, program)
+    def run(self, program, priority = None):
+        self.newIRQ = IRQ(NEW_INTERRUPTION_TYPE, [program, priority])
         HARDWARE.interruptVector.handle(self.newIRQ)
 
         log.logger.info("\n Executing program: {name}".format(name=program.name))

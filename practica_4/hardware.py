@@ -297,7 +297,7 @@ class Timer:
     def __init__(self, cpu, interruptVector):
         self._cpu = cpu
         self._interruptVector = interruptVector
-        self._tickCount = 0    # cantidad de de ciclos “ejecutados” por el proceso actual
+        self._tickCount = 0    # cantidad de ciclos “ejecutados” por el proceso actual
         self._active = False    # por default esta desactivado
         self._quantum = 0   # por default esta desactivado
 
