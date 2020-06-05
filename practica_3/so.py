@@ -265,14 +265,15 @@ class Loader():
     def load(self, program):
         progSize = len(program.instructions)
 
-        self._baseDir = self._nextPC
+        baseDir = self._nextPC
 
-        self._nextPC = self._baseDir + progSize
-        for index in range(self._baseDir, self._nextPC):
-            inst = program.instructions[index-self._baseDir]
-            HARDWARE.memory.write(index, inst)
+        self._nextPC = baseDir + progSize
+
+        for index in range(0, progSize):
+            inst = program.instructions[index]
+            HARDWARE.memory.write(index+baseDir, inst)
         
-        return self._baseDir
+        return baseDir
 
 class Dispatcher():
 
