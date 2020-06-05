@@ -20,6 +20,17 @@ if __name__ == '__main__':
     # "booteamos" el sistema operativo
     kernel = Kernel()
 
+
+    # kernel.scheduler = RoundRobin(4)
+    # kernel.scheduler = PriorityNoExp(5)
+    # kernel.scheduler = Scheduler(RoundRobin(4))
+    # kernel.scheduler = Scheduler(kernel, PriorityNoExp(5))
+
+    # kernel.setupScheduler(RoundRobin(4))
+    kernel.setupScheduler(FCFS())
+    kernel.setupScheduler(NonPreemptive(3))
+
+
     # Ahora vamos a intentar ejecutar 3 programas a la vez
     ##################
     prg1 = Program("prg1.exe", [ASM.CPU(2), ASM.IO(), ASM.CPU(3), ASM.IO(), ASM.CPU(2)])

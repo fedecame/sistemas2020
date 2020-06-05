@@ -119,6 +119,59 @@ class PCBTable():
     def runningPCB(self, runningPCB):
         self._runningPCB = runningPCB
 
+class Scheduler():
+
+    def __init__(self, kernel, schedulerType):
+        self._readyQueue = ReadyQueue()
+        # self._ticksPassed = 0
+        self._schedulerType = schedulerType.setup(kernel, self._readyQueue)
+
+    def add(self, pcb):
+        self._schedulerType.add(pcb)
+
+    def getNext(self):
+        return self._schedulerType.getNext()
+
+    # def addTick(self):
+    #     self._ticksPassed += 1
+    #     # aumentar a todos los pcbs 1 tick de espera
+    #     if (self._ticksPassed == 2):
+    #         # aumentar prioridad (de aging) de todos los pcbs que hayan estado 2 ticks
+    #         self._ticksPassed = 0
+
+    # def addTick2(self):
+        # aumentar a todos los pcbs 1 tick de espera
+        # en cada pcb le pregunto si espero 2, aumentar prioridad (de aging) y resetear el tiempo de espera
+
+class SchedulerType():
+
+    def setup(self, kernel, readyQueue):
+        self._kernel = kernel
+        self._readyQueue = readyQueue
+        return self
+
+class FCFS(SchedulerType):
+
+    def add(self, pcb):
+        self._readyQueue.enqueue(pcb)
+
+    def getNext(self):
+        if self._readyQueue.isEmpty():
+            self._kernel.pcbTable.runningPCB = None
+        else:
+            return self._readyQueue.dequeue()
+
+class NonPreemptive(SchedulerType):
+
+    def __init__(self, priorityAmount):
+        self._priorityAmount = priorityAmount
+        self._readyQueue = []
+        for n in range(priorityAmount):
+            self._readyQueue.append([])
+
+    def add(self, pcb):
+        self._readyQueue.enqueue(pcb)
+
 class ReadyQueue():
 
     def __init__(self):
@@ -197,7 +250,7 @@ class NewInterruptionHandler(AbstractInterruptionHandler):
             self.kernel.dispatcher.load(pcb)
         else:
             pcb.state = READY_STATE
-            self.kernel.readyQueue.enqueue(pcb)
+            self.kernel.scheduler.add(pcb)
 
 class KillInterruptionHandler(AbstractInterruptionHandler):
 
@@ -209,14 +262,11 @@ class KillInterruptionHandler(AbstractInterruptionHandler):
         pcbTerminated.state = TERMINATED_STATE
         pcbTable.remove(pcbTerminated.id)
 
-        readyQueue = self.kernel.readyQueue
-        if (not readyQueue.isEmpty()):
-            nextPcb = readyQueue.dequeue()
+        nextPcb = self.kernel.scheduler.getNext()
+        if (nextPcb is not None):
             nextPcb.state = RUNNING_STATE
             pcbTable.runningPCB = nextPcb
             self.kernel.dispatcher.load(nextPcb)
-        else:
-            pcbTable.runningPCB = None
 
 class IoInInterruptionHandler(AbstractInterruptionHandler):
 
@@ -228,14 +278,11 @@ class IoInInterruptionHandler(AbstractInterruptionHandler):
         self.kernel.ioDeviceController.runOperation(pcb, operation)
         
         pcbTable = self.kernel.pcbTable
-        readyQueue = self.kernel.readyQueue
-        if (not readyQueue.isEmpty()):
-            nextPcb = readyQueue.dequeue()
+        nextPcb = self.kernel.scheduler.getNext()
+        if (nextPcb is not None):
             nextPcb.state = RUNNING_STATE
             pcbTable.runningPCB = nextPcb
             self.kernel.dispatcher.load(nextPcb)
-        else:   
-            pcbTable.runningPCB = None     
         
         log.logger.info(self.kernel.ioDeviceController)
 
@@ -245,7 +292,6 @@ class IoOutInterruptionHandler(AbstractInterruptionHandler):
     def execute(self, irq):
         pcb = self.kernel.ioDeviceController.getFinishedPCB()
 
-        readyQueue = self.kernel.readyQueue
         pcbTable = self.kernel.pcbTable
         if (pcbTable.runningPCB is None):
             pcb.state = RUNNING_STATE
@@ -253,7 +299,7 @@ class IoOutInterruptionHandler(AbstractInterruptionHandler):
             pcbTable.runningPCB = pcb
         else:
             pcb.state = READY_STATE
-            readyQueue.enqueue(pcb)
+            self.kernel.scheduler.add(pcb)
 
         log.logger.info(self.kernel.ioDeviceController)
 
@@ -309,7 +355,8 @@ class Kernel():
         self._ioDeviceController = IoDeviceController(HARDWARE.ioDevice)
         self._loader = Loader()
         self._pcbTable = PCBTable()
-        self._readyQueue = ReadyQueue()
+        # self._readyQueue = ReadyQueue()
+        # self._scheduler = Scheduler(self, FCFS())
         self._dispatcher = Dispatcher()
 
     @property
@@ -324,13 +371,20 @@ class Kernel():
     def pcbTable(self):
         return self._pcbTable
     
+    # @property
+    # def readyQueue(self):
+    #     return self._readyQueue
+
     @property
-    def readyQueue(self):
-        return self._readyQueue
+    def scheduler(self):
+        return self._scheduler
 
     @property
     def dispatcher(self):
         return self._dispatcher
+
+    def setupScheduler(self, schedulerType):
+        self._scheduler = Scheduler(self, schedulerType)
 
     ## emulates a "system call" for programs execution
     def run(self, program):
