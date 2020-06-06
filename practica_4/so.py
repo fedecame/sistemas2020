@@ -52,12 +52,14 @@ class Program():
 
 class PCB():
 
-    def __init__(self, id, baseDir, path):
+    def __init__(self, id, baseDir, path, priority = None):
         self._id = id
         self._baseDir = baseDir
         self._path = path
         self._estado = NEW_STATE
         self._pc = 0
+        self._priority = priority
+        self._burstTime = 0 #tiempo que esta en la ready queue
 
     @property
     def id(self):
@@ -91,6 +93,18 @@ class PCB():
     def pc(self, pc):
         self._pc = pc
 
+    @property
+    def priority(self):
+        return self._priority
+
+    @property
+    def burstTime(self):
+        return self._burstTime
+
+    @burstTime.setter
+    def burstTime(self, burstTime):
+        self._burstTime = burstTime
+
 class PCBTable():
     
     def __init__(self):
@@ -118,6 +132,104 @@ class PCBTable():
     @runningPCB.setter
     def runningPCB(self, runningPCB):
         self._runningPCB = runningPCB
+
+class Scheduler():
+
+    def __init__(self, kernel, schedulerType):
+        self._readyQueue = ReadyQueue()
+        # self._ticksPassed = 0
+        self._schedulerType = schedulerType.setup(kernel, self._readyQueue)
+
+    def add(self, pcb):
+        self._schedulerType.add(pcb)
+
+    def getNext(self):
+        return self._schedulerType.getNext()
+
+    # def addTick(self):
+    #     self._ticksPassed += 1
+    #     # aumentar a todos los pcbs 1 tick de espera
+    #     if (self._ticksPassed == 2):
+    #         # aumentar prioridad (de aging) de todos los pcbs que hayan estado 2 ticks
+    #         self._ticksPassed = 0
+
+    # def addTick2(self):
+        # aumentar a todos los pcbs 1 tick de espera
+        # en cada pcb le pregunto si espero 2, aumentar prioridad (de aging) y resetear el tiempo de espera
+
+class SchedulerType():
+
+    def setup(self, kernel, readyQueue):
+        self._kernel = kernel
+        self._readyQueue = readyQueue
+        return self
+
+class FCFS(SchedulerType):
+
+    def add(self, pcb):
+        self._readyQueue.enqueue(pcb)
+
+    def getNext(self):
+        if self._readyQueue.isEmpty():
+            self._kernel.pcbTable.runningPCB = None
+        else:
+            return self._readyQueue.dequeue()
+
+class NonPreemptive(SchedulerType):
+
+    def __init__(self, priorityAmount):
+        HARDWARE.clock.addSubscriber(self)
+        self._priorityAmount = priorityAmount
+        self._readyQueue2 = []
+        self.subtarea()
+
+    def subtarea(self):
+        for n in range(self._priorityAmount):
+            self._readyQueue2.append([])
+
+    def add(self, pcb):
+        # self._readyQueue2.enqueue(pcb)
+        self._readyQueue2[pcb.priority-1].append(pcb)
+
+    # revisar si retorna None cuando no hay pcbs en las listas
+    # revisar si el return funciona como break tmb
+    def getNext(self):
+        for ls in self._readyQueue2:
+            if len(ls) > 0:
+                return ls.pop()
+
+    def tick(self, tickNbr):
+        for index in range(1, self._priorityAmount):
+            for pcb2 in self._readyQueue2[index]:
+                pcb2.burstTime += 1
+                if pcb2.burstTime >= 3:
+                    #reseteo tiempo de espera
+                    pcb2.burstTime = 0
+                    #swap de lista a una de mayor prioridad
+                    #alias "agePcb2"
+                    self._readyQueue2[index-1].append(pcb2)
+                    self._readyQueue2[index].remove(pcb2)
+
+            # for pcb in self._readyQueue[index]:
+            #     pcb.burstTime += 1
+            #     if pcb.burstTime >= 3:
+            #         #reseteo tiempo de espera
+            #         pcb.burstTime = 0
+            #         #swap de lista a una de mayor prioridad
+            #         #alias "agePcb"
+            #         self._readyQueue[index-1].append(pcb)
+            #         self._readyQueue[index].remove(pcb)
+
+    # def addTick(self):
+    #     self._ticksPassed += 1
+    #     # aumentar a todos los pcbs 1 tick de espera
+    #     if (self._ticksPassed == 2):
+    #         # aumentar prioridad (de aging) de todos los pcbs que hayan estado 2 ticks
+    #         self._ticksPassed = 0
+
+    # def addTick2(self):
+        # aumentar a todos los pcbs 1 tick de espera
+        # en cada pcb le pregunto si espero 3, aumentar prioridad (de aging) y resetear el tiempo de espera
 
 class ReadyQueue():
 
@@ -185,10 +297,11 @@ class NewInterruptionHandler(AbstractInterruptionHandler):
     def execute(self, irq):
         pcbTable = self.kernel.pcbTable
         log.logger.info(" Program started ")
-        program = irq.parameters
+        program = irq.parameters[0]
+        priority = irq.parameters[1]
         baseDir = self.kernel.loader.load(program)
         pcbId = pcbTable.getNewPID()
-        pcb = PCB(pcbId, baseDir, program.name)
+        pcb = PCB(pcbId, baseDir, program.name, priority)
         pcbTable.add(pcb)
 
         if (pcbTable.runningPCB is None):
@@ -197,7 +310,7 @@ class NewInterruptionHandler(AbstractInterruptionHandler):
             self.kernel.dispatcher.load(pcb)
         else:
             pcb.state = READY_STATE
-            self.kernel.readyQueue.enqueue(pcb)
+            self.kernel.scheduler.add(pcb)
 
 class KillInterruptionHandler(AbstractInterruptionHandler):
 
@@ -209,33 +322,27 @@ class KillInterruptionHandler(AbstractInterruptionHandler):
         pcbTerminated.state = TERMINATED_STATE
         pcbTable.remove(pcbTerminated.id)
 
-        readyQueue = self.kernel.readyQueue
-        if (not readyQueue.isEmpty()):
-            nextPcb = readyQueue.dequeue()
+        nextPcb = self.kernel.scheduler.getNext()
+        if (nextPcb is not None):
             nextPcb.state = RUNNING_STATE
             pcbTable.runningPCB = nextPcb
             self.kernel.dispatcher.load(nextPcb)
-        else:
-            pcbTable.runningPCB = None
 
 class IoInInterruptionHandler(AbstractInterruptionHandler):
 
     def execute(self, irq):
-        operation = irq.parameters
+        operation = irq.parameters[0]
         pcb = self.kernel.pcbTable.runningPCB
         self.kernel.dispatcher.save(pcb)
         pcb.state = WAITING_STATE
         self.kernel.ioDeviceController.runOperation(pcb, operation)
         
         pcbTable = self.kernel.pcbTable
-        readyQueue = self.kernel.readyQueue
-        if (not readyQueue.isEmpty()):
-            nextPcb = readyQueue.dequeue()
+        nextPcb = self.kernel.scheduler.getNext()
+        if (nextPcb is not None):
             nextPcb.state = RUNNING_STATE
             pcbTable.runningPCB = nextPcb
             self.kernel.dispatcher.load(nextPcb)
-        else:   
-            pcbTable.runningPCB = None     
         
         log.logger.info(self.kernel.ioDeviceController)
 
@@ -245,7 +352,6 @@ class IoOutInterruptionHandler(AbstractInterruptionHandler):
     def execute(self, irq):
         pcb = self.kernel.ioDeviceController.getFinishedPCB()
 
-        readyQueue = self.kernel.readyQueue
         pcbTable = self.kernel.pcbTable
         if (pcbTable.runningPCB is None):
             pcb.state = RUNNING_STATE
@@ -253,7 +359,7 @@ class IoOutInterruptionHandler(AbstractInterruptionHandler):
             pcbTable.runningPCB = pcb
         else:
             pcb.state = READY_STATE
-            readyQueue.enqueue(pcb)
+            self.kernel.scheduler.add(pcb)
 
         log.logger.info(self.kernel.ioDeviceController)
 
@@ -287,7 +393,6 @@ class Dispatcher():
         pcb.pc = HARDWARE.cpu.pc
         HARDWARE.cpu.pc = -1
 
-
 # emulates the core of an Operative System
 class Kernel():
 
@@ -309,7 +414,8 @@ class Kernel():
         self._ioDeviceController = IoDeviceController(HARDWARE.ioDevice)
         self._loader = Loader()
         self._pcbTable = PCBTable()
-        self._readyQueue = ReadyQueue()
+        # self._readyQueue = ReadyQueue()
+        # self._scheduler = Scheduler(self, FCFS())
         self._dispatcher = Dispatcher()
 
     @property
@@ -324,17 +430,24 @@ class Kernel():
     def pcbTable(self):
         return self._pcbTable
     
+    # @property
+    # def readyQueue(self):
+    #     return self._readyQueue
+
     @property
-    def readyQueue(self):
-        return self._readyQueue
+    def scheduler(self):
+        return self._scheduler
 
     @property
     def dispatcher(self):
         return self._dispatcher
 
+    def setupScheduler(self, schedulerType):
+        self._scheduler = Scheduler(self, schedulerType)
+
     ## emulates a "system call" for programs execution
-    def run(self, program):
-        self.newIRQ = IRQ(NEW_INTERRUPTION_TYPE, program)
+    def run(self, program, priority = None):
+        self.newIRQ = IRQ(NEW_INTERRUPTION_TYPE, [program, priority])
         HARDWARE.interruptVector.handle(self.newIRQ)
 
         log.logger.info("\n Executing program: {name}".format(name=program.name))
