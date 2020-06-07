@@ -146,6 +146,12 @@ class Scheduler():
     def getNext(self):
         return self._schedulerType.getNext()
 
+    def isEmpty(self):
+        return self._schedulerType.isEmpty() 
+
+    def mustExpropiate(self, pcbInCPU, pcbToAdd):
+        return self._schedulerType.mustExpropiate(pcbInCPU, pcbToAdd)
+
     # def addTick(self):
     #     self._ticksPassed += 1
     #     # aumentar a todos los pcbs 1 tick de espera
@@ -164,16 +170,19 @@ class SchedulerType():
         self._readyQueue = readyQueue
         return self
 
+    def isEmpty(self):
+        return self._readyQueue.isEmpty()
+
+    def mustExpropiate(self, pcbInCPU, pcbToAdd):
+        return False
+
 class FCFS(SchedulerType):
 
     def add(self, pcb):
         self._readyQueue.enqueue(pcb)
 
     def getNext(self):
-        if self._readyQueue.isEmpty():
-            self._kernel.pcbTable.runningPCB = None
-        else:
-            return self._readyQueue.dequeue()
+        return self._readyQueue.dequeue()
 
 class NonPreemptive(SchedulerType):
 
@@ -181,9 +190,6 @@ class NonPreemptive(SchedulerType):
         HARDWARE.clock.addSubscriber(self)
         self._priorityAmount = priorityAmount
         self._readyQueue2 = []
-        self.subtarea()
-
-    def subtarea(self):
         for n in range(self._priorityAmount):
             self._readyQueue2.append([])
 
@@ -191,12 +197,21 @@ class NonPreemptive(SchedulerType):
         # self._readyQueue2.enqueue(pcb)
         self._readyQueue2[pcb.priority-1].append(pcb)
 
-    # revisar si retorna None cuando no hay pcbs en las listas
-    # revisar si el return funciona como break tmb
-    def getNext(self):
+    def isEmpty(self):
+        isEmpty = True
         for ls in self._readyQueue2:
+            isEmpty = isEmpty and len(ls) == 0
+        return isEmpty
+        
+
+    def getNext(self):
+        counter = 0
+        for ls in self._readyQueue2:
+            counter += 1
             if len(ls) > 0:
-                return ls.pop()
+                return ls.pop(0)
+            else:
+                print("No ELEMENTS en Prioridad " + str(counter))
 
     def tick(self, tickNbr):
         for index in range(1, self._priorityAmount):
@@ -207,8 +222,8 @@ class NonPreemptive(SchedulerType):
                     pcb2.burstTime = 0
                     #swap de lista a una de mayor prioridad
                     #alias "agePcb2"
-                    self._readyQueue2[index-1].append(pcb2)
                     self._readyQueue2[index].remove(pcb2)
+                    self._readyQueue2[index-1].append(pcb2)
 
             # for pcb in self._readyQueue[index]:
             #     pcb.burstTime += 1
@@ -230,6 +245,49 @@ class NonPreemptive(SchedulerType):
     # def addTick2(self):
         # aumentar a todos los pcbs 1 tick de espera
         # en cada pcb le pregunto si espero 3, aumentar prioridad (de aging) y resetear el tiempo de espera
+
+class Preemptive(SchedulerType):
+
+    def __init__(self, priorityAmount):
+        HARDWARE.clock.addSubscriber(self)
+        self._priorityAmount = priorityAmount
+        self._readyQueue2 = []
+        for n in range(self._priorityAmount):
+            self._readyQueue2.append([])
+
+    def add(self, pcb):
+        # self._readyQueue2.enqueue(pcb)
+        self._readyQueue2[pcb.priority-1].append(pcb)
+
+    def isEmpty(self):
+        isEmpty = True
+        for ls in self._readyQueue2:
+            isEmpty = isEmpty and len(ls) == 0
+        return isEmpty
+        
+    def mustExpropiate(self, pcbInCPU, pcbToAdd):
+        return pcbToAdd.priority < pcbInCPU.priority
+
+    def getNext(self):
+        counter = 0
+        for ls in self._readyQueue2:
+            counter += 1
+            if len(ls) > 0:
+                return ls.pop(0)
+            else:
+                print("No ELEMENTS en Prioridad " + str(counter))
+
+    def tick(self, tickNbr):
+        for index in range(1, self._priorityAmount):
+            for pcb2 in self._readyQueue2[index]:
+                pcb2.burstTime += 1
+                if pcb2.burstTime >= 3:
+                    #reseteo tiempo de espera
+                    pcb2.burstTime = 0
+                    #swap de lista a una de mayor prioridad
+                    #alias "agePcb2"
+                    self._readyQueue2[index].remove(pcb2)
+                    self._readyQueue2[index-1].append(pcb2)
 
 class ReadyQueue():
 
@@ -304,13 +362,28 @@ class NewInterruptionHandler(AbstractInterruptionHandler):
         pcb = PCB(pcbId, baseDir, program.name, priority)
         pcbTable.add(pcb)
 
-        if (pcbTable.runningPCB is None):
+        scheduler = self.kernel.scheduler
+        runningPCB2 = pcbTable.runningPCB
+        if (runningPCB2 is None):
             pcb.state = RUNNING_STATE
             pcbTable.runningPCB = pcb
             self.kernel.dispatcher.load(pcb)
         else:
-            pcb.state = READY_STATE
-            self.kernel.scheduler.add(pcb)
+            # scheduler = self.kernel.scheduler
+            if (scheduler.mustExpropiate(runningPCB2, pcb)):
+                self.kernel.dispatcher.save(runningPCB2)
+                runningPCB2.state = READY_STATE
+                scheduler.add(runningPCB2)
+
+                print("Expropio, saco el pcb " + str(runningPCB2.id))
+                print("Y pongo el pcb " + str(pcb.id))
+
+                pcb.state = RUNNING_STATE
+                pcbTable.runningPCB = pcb
+                self.kernel.dispatcher.load(pcb)
+            else:
+                pcb.state = READY_STATE
+                scheduler.add(pcb)
 
 class KillInterruptionHandler(AbstractInterruptionHandler):
 
@@ -321,28 +394,34 @@ class KillInterruptionHandler(AbstractInterruptionHandler):
         self.kernel.dispatcher.save(pcbTerminated)
         pcbTerminated.state = TERMINATED_STATE
         pcbTable.remove(pcbTerminated.id)
+        scheduler = self.kernel.scheduler
 
-        nextPcb = self.kernel.scheduler.getNext()
-        if (nextPcb is not None):
+        if (not scheduler.isEmpty()):
+            nextPcb = scheduler.getNext()
             nextPcb.state = RUNNING_STATE
             pcbTable.runningPCB = nextPcb
             self.kernel.dispatcher.load(nextPcb)
+        else:
+            pcbTable.runningPCB = None
 
 class IoInInterruptionHandler(AbstractInterruptionHandler):
 
     def execute(self, irq):
         operation = irq.parameters[0]
-        pcb = self.kernel.pcbTable.runningPCB
+        pcbTable = self.kernel.pcbTable
+        pcb = pcbTable.runningPCB
         self.kernel.dispatcher.save(pcb)
         pcb.state = WAITING_STATE
         self.kernel.ioDeviceController.runOperation(pcb, operation)
-        
-        pcbTable = self.kernel.pcbTable
-        nextPcb = self.kernel.scheduler.getNext()
-        if (nextPcb is not None):
+        scheduler = self.kernel.scheduler
+
+        if (not scheduler.isEmpty()):
+            nextPcb = scheduler.getNext()
             nextPcb.state = RUNNING_STATE
             pcbTable.runningPCB = nextPcb
             self.kernel.dispatcher.load(nextPcb)
+        else:
+            pcbTable.runningPCB = None
         
         log.logger.info(self.kernel.ioDeviceController)
 
@@ -352,14 +431,29 @@ class IoOutInterruptionHandler(AbstractInterruptionHandler):
     def execute(self, irq):
         pcb = self.kernel.ioDeviceController.getFinishedPCB()
 
+        scheduler = self.kernel.scheduler
         pcbTable = self.kernel.pcbTable
-        if (pcbTable.runningPCB is None):
+        runningPCB2 = pcbTable.runningPCB
+        if (runningPCB2 is None):
             pcb.state = RUNNING_STATE
             self.kernel.dispatcher.load(pcb)
             pcbTable.runningPCB = pcb
         else:
-            pcb.state = READY_STATE
-            self.kernel.scheduler.add(pcb)
+            # scheduler = self.kernel.scheduler
+            if scheduler.mustExpropiate(runningPCB2, pcb):
+                self.kernel.dispatcher.save(runningPCB2)
+                runningPCB2.state = READY_STATE
+                scheduler.add(runningPCB2)
+
+                print("Expropio, saco el pcb " + str(runningPCB2.id))
+                print("Y pongo el pcb " + str(pcb.id))
+
+                pcb.state = RUNNING_STATE
+                self.kernel.dispatcher.load(pcb)
+                pcbTable.runningPCB = pcb
+            else:
+                pcb.state = READY_STATE
+                scheduler.add(pcb)
 
         log.logger.info(self.kernel.ioDeviceController)
 
