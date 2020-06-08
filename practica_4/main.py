@@ -18,7 +18,7 @@ if __name__ == '__main__':
 
     ## new create the Operative System Kernel
     # "booteamos" el sistema operativo
-    kernel = Kernel(printGant = False)
+    kernel = Kernel(printGant = True)
 
     # kernel.setupScheduler(FCFS())
     # kernel.setupScheduler(NonPreemptive(3))

@@ -138,7 +138,6 @@ class Scheduler():
 
     def __init__(self, schedulerType):
         self._readyQueue = ReadyQueue()
-        # self._ticksPassed = 0
         self._schedulerType = schedulerType.setup(self._readyQueue)
 
     def add(self, pcb):
@@ -152,17 +151,6 @@ class Scheduler():
 
     def mustExpropiate(self, pcbInCPU, pcbToAdd):
         return self._schedulerType.mustExpropiate(pcbInCPU, pcbToAdd)
-
-    # def addTick(self):
-    #     self._ticksPassed += 1
-    #     # aumentar a todos los pcbs 1 tick de espera
-    #     if (self._ticksPassed == 2):
-    #         # aumentar prioridad (de aging) de todos los pcbs que hayan estado 2 ticks
-    #         self._ticksPassed = 0
-
-    # def addTick2(self):
-        # aumentar a todos los pcbs 1 tick de espera
-        # en cada pcb le pregunto si espero 2, aumentar prioridad (de aging) y resetear el tiempo de espera
 
 class SchedulerType():
 
@@ -194,7 +182,6 @@ class NonPreemptive(SchedulerType):
             self._readyQueue2.append([])
 
     def add(self, pcb):
-        # self._readyQueue2.enqueue(pcb)
         self._readyQueue2[pcb.priority-1].append(pcb)
 
     def isEmpty(self):
@@ -225,27 +212,6 @@ class NonPreemptive(SchedulerType):
                     self._readyQueue2[index].remove(pcb2)
                     self._readyQueue2[index-1].append(pcb2)
 
-            # for pcb in self._readyQueue[index]:
-            #     pcb.burstTime += 1
-            #     if pcb.burstTime >= 3:
-            #         #reseteo tiempo de espera
-            #         pcb.burstTime = 0
-            #         #swap de lista a una de mayor prioridad
-            #         #alias "agePcb"
-            #         self._readyQueue[index-1].append(pcb)
-            #         self._readyQueue[index].remove(pcb)
-
-    # def addTick(self):
-    #     self._ticksPassed += 1
-    #     # aumentar a todos los pcbs 1 tick de espera
-    #     if (self._ticksPassed == 2):
-    #         # aumentar prioridad (de aging) de todos los pcbs que hayan estado 2 ticks
-    #         self._ticksPassed = 0
-
-    # def addTick2(self):
-        # aumentar a todos los pcbs 1 tick de espera
-        # en cada pcb le pregunto si espero 3, aumentar prioridad (de aging) y resetear el tiempo de espera
-
 class Preemptive(SchedulerType):
 
     def __init__(self, priorityAmount):
@@ -256,7 +222,6 @@ class Preemptive(SchedulerType):
             self._readyQueue2.append([])
 
     def add(self, pcb):
-        # self._readyQueue2.enqueue(pcb)
         self._readyQueue2[pcb.priority-1].append(pcb)
 
     def isEmpty(self):
@@ -380,7 +345,6 @@ class NewInterruptionHandler(AbstractInterruptionHandler):
             pcbTable.runningPCB = pcb
             self.kernel.dispatcher.load(pcb)
         else:
-            # scheduler = self.kernel.scheduler
             if (scheduler.mustExpropiate(runningPCB2, pcb)):
                 self.kernel.dispatcher.save(runningPCB2)
                 runningPCB2.state = READY_STATE
@@ -517,7 +481,7 @@ class StatsInterruptionHandler(AbstractInterruptionHandler):
             for pcbId in gantProcesses:
                 agregaUnTickASublistas(_listaDeListas, pcbId)
 
-            # aca ya tengo las listas cargadas con 55 y "."s
+            # aca ya tengo las listas cargadas con 55s y "."s
 
             def mapea55sAInstruccionesRestantes(ls):
                 cantidadDeInstrucciones = ls.count(55)
@@ -602,8 +566,6 @@ class Kernel():
         self._ioDeviceController = IoDeviceController(HARDWARE.ioDevice)
         self._loader = Loader()
         self._pcbTable = PCBTable()
-        # self._readyQueue = ReadyQueue()
-        # self._scheduler = Scheduler(self, FCFS())
         self._dispatcher = Dispatcher()
         self._gantProcesses = []
 
@@ -618,10 +580,6 @@ class Kernel():
     @property
     def pcbTable(self):
         return self._pcbTable
-    
-    # @property
-    # def readyQueue(self):
-    #     return self._readyQueue
 
     @property
     def scheduler(self):
