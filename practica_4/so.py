@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 from hardware import *
+from tabulate import tabulate
 import log
 
 #PCB STATES
@@ -135,10 +136,10 @@ class PCBTable():
 
 class Scheduler():
 
-    def __init__(self, kernel, schedulerType):
+    def __init__(self, schedulerType):
         self._readyQueue = ReadyQueue()
         # self._ticksPassed = 0
-        self._schedulerType = schedulerType.setup(kernel, self._readyQueue)
+        self._schedulerType = schedulerType.setup(self._readyQueue)
 
     def add(self, pcb):
         self._schedulerType.add(pcb)
@@ -165,8 +166,7 @@ class Scheduler():
 
 class SchedulerType():
 
-    def setup(self, kernel, readyQueue):
-        self._kernel = kernel
+    def setup(self, readyQueue):
         self._readyQueue = readyQueue
         return self
 
@@ -288,6 +288,17 @@ class Preemptive(SchedulerType):
                     #alias "agePcb2"
                     self._readyQueue2[index].remove(pcb2)
                     self._readyQueue2[index-1].append(pcb2)
+
+class RoundRobin(SchedulerType):
+
+    def __init__(self, quantumValue):
+        HARDWARE.timer.quantum = quantumValue
+
+    def add(self, pcb):
+        self._readyQueue.enqueue(pcb)
+
+    def getNext(self):
+        return self._readyQueue.dequeue()
 
 class ReadyQueue():
 
@@ -457,6 +468,80 @@ class IoOutInterruptionHandler(AbstractInterruptionHandler):
 
         log.logger.info(self.kernel.ioDeviceController)
 
+class TimeoutInterruptionHandler(AbstractInterruptionHandler):
+    # asumimos que el scheduler es RoundRobin porque solo ese scheduler setea el quantum (activa el Timer)
+    def execute(self, irq):
+        log.logger.info(" Timeout interruption ")
+        scheduler = self.kernel.scheduler
+        if (scheduler.isEmpty()):
+            HARDWARE.timer.reset()
+        else:
+            pcbTable = self.kernel.pcbTable
+            runningPCB = pcbTable.runningPCB
+            runningPCB.state = READY_STATE
+            self.kernel.dispatcher.save(runningPCB)
+            scheduler.add(runningPCB)
+
+            pcbToExecute = scheduler.getNext()
+            pcbToExecute.state = RUNNING_STATE
+            self.kernel.dispatcher.load(pcbToExecute)
+            pcbTable.runningPCB = pcbToExecute
+            print("Expropio, saco el pcb " + str(runningPCB.id))
+            print("Y pongo el pcb " + str(pcbToExecute.id))
+
+class StatsInterruptionHandler(AbstractInterruptionHandler):
+    # asumimos que el scheduler es RoundRobin porque solo ese scheduler setea el quantum (activa el Timer)
+    def execute(self, irq):
+        gantProcesses = self.kernel.gantProcesses
+
+        runningPCB = self.kernel.pcbTable.runningPCB
+        # ASUMIENDO que nunca hay instrucciones de IO (como en los ejemplos vistos), cuando no haya un pcb en running es que ya terminaron de ejecutarse todos los pcbs
+        if runningPCB is None:
+            # _listaDeListas = " cada lista interna representa una fila, osea un proceso "
+            _listaDeListas = []
+            procesos = set(gantProcesses)
+            for x in procesos:
+                _listaDeListas.append([])
+            
+            # aca ya tenemos las listas (vacias) creadas
+
+            def agregaUnTickASublistas(lss, pcbId):
+                contador = 0
+                for ls in lss:
+                    contador += 1
+                    if pcbId == contador:
+                        ls.append(55)
+                    else:
+                        ls.append(".")
+
+            for pcbId in gantProcesses:
+                agregaUnTickASublistas(_listaDeListas, pcbId)
+
+            # aca ya tengo las listas cargadas con 55 y "."s
+
+            def mapea55sAInstruccionesRestantes(ls):
+                cantidadDeInstrucciones = ls.count(55)
+                listaARetornar = []
+                for instr in ls:
+                    if (instr == 55):
+                        listaARetornar.append(cantidadDeInstrucciones)
+                        cantidadDeInstrucciones -= 1
+                    else:
+                        listaARetornar.append(".")
+                return listaARetornar
+
+            for processList in _listaDeListas:
+                indiceDeProcessList = _listaDeListas.index(processList)
+                _listaDeListas.remove(processList)
+                _listaDeListas.insert(indiceDeProcessList, mapea55sAInstruccionesRestantes(processList))
+
+            listaDeHeaders = list(range(len(gantProcesses)))
+            listaDeHeaders.insert(0, "Proceso")
+            print(tabulate(_listaDeListas, headers=listaDeHeaders, showindex=list(range(1, len(procesos)+1)), tablefmt="fancy_grid"))
+
+            HARDWARE.switchOff()
+        else:
+            gantProcesses.append(runningPCB.id)
 
 class Loader():
 
@@ -482,6 +567,7 @@ class Dispatcher():
     def load(self, pcb):
         HARDWARE.cpu.pc = pcb.pc
         HARDWARE.mmu.baseDir = pcb.baseDir
+        HARDWARE.timer.reset()
 
     def save(self, pcb):
         pcb.pc = HARDWARE.cpu.pc
@@ -490,7 +576,9 @@ class Dispatcher():
 # emulates the core of an Operative System
 class Kernel():
 
-    def __init__(self):
+    def __init__(self, printGant = False):
+        HARDWARE.cpu.enable_stats = printGant
+
         ## setup interruption handlers
         killHandler = KillInterruptionHandler(self)
         HARDWARE.interruptVector.register(KILL_INTERRUPTION_TYPE, killHandler)
@@ -504,6 +592,12 @@ class Kernel():
         newHandler = NewInterruptionHandler(self)
         HARDWARE.interruptVector.register(NEW_INTERRUPTION_TYPE, newHandler)
 
+        timeoutHandler = TimeoutInterruptionHandler(self)
+        HARDWARE.interruptVector.register(TIMEOUT_INTERRUPTION_TYPE, timeoutHandler)
+
+        statsHandler = StatsInterruptionHandler(self)
+        HARDWARE.interruptVector.register(STAT_INTERRUPTION_TYPE, statsHandler)
+
         ## controls the Hardware's I/O Device
         self._ioDeviceController = IoDeviceController(HARDWARE.ioDevice)
         self._loader = Loader()
@@ -511,6 +605,7 @@ class Kernel():
         # self._readyQueue = ReadyQueue()
         # self._scheduler = Scheduler(self, FCFS())
         self._dispatcher = Dispatcher()
+        self._gantProcesses = []
 
     @property
     def ioDeviceController(self):
@@ -536,8 +631,12 @@ class Kernel():
     def dispatcher(self):
         return self._dispatcher
 
+    @property
+    def gantProcesses(self):
+        return self._gantProcesses
+
     def setupScheduler(self, schedulerType):
-        self._scheduler = Scheduler(self, schedulerType)
+        self._scheduler = Scheduler(schedulerType)
 
     ## emulates a "system call" for programs execution
     def run(self, program, priority = None):
