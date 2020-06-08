@@ -11,7 +11,7 @@ if __name__ == '__main__':
     log.logger.info('Starting emulator')
 
     ## setup our hardware and set memory size to 25 "cells"
-    HARDWARE.setup(50)
+    HARDWARE.setup(30)
 
     ## Switch on computer
     HARDWARE.switchOn()
@@ -19,7 +19,6 @@ if __name__ == '__main__':
     ## new create the Operative System Kernel
     # "booteamos" el sistema operativo
     kernel = Kernel()
-
 
     # kernel.scheduler = RoundRobin(4)
     # kernel.scheduler = PriorityNoExp(5)
@@ -29,8 +28,8 @@ if __name__ == '__main__':
     # kernel.setupScheduler(RoundRobin(4))
     # kernel.setupScheduler(FCFS())
     # kernel.setupScheduler(NonPreemptive(3))
-    kernel.setupScheduler(Preemptive(3))
-
+    # kernel.setupScheduler(Preemptive(3))
+    kernel.setupScheduler(RoundRobin(3))
 
     # Ahora vamos a intentar ejecutar 3 programas a la vez
     ##################
@@ -46,5 +45,3 @@ if __name__ == '__main__':
     kernel.run(prg1, 2)
     kernel.run(prg2, 2)
     kernel.run(prg3, 1)
-
-

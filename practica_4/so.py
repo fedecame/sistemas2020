@@ -135,10 +135,10 @@ class PCBTable():
 
 class Scheduler():
 
-    def __init__(self, kernel, schedulerType):
+    def __init__(self, schedulerType):
         self._readyQueue = ReadyQueue()
         # self._ticksPassed = 0
-        self._schedulerType = schedulerType.setup(kernel, self._readyQueue)
+        self._schedulerType = schedulerType.setup(self._readyQueue)
 
     def add(self, pcb):
         self._schedulerType.add(pcb)
@@ -165,8 +165,7 @@ class Scheduler():
 
 class SchedulerType():
 
-    def setup(self, kernel, readyQueue):
-        self._kernel = kernel
+    def setup(self, readyQueue):
         self._readyQueue = readyQueue
         return self
 
@@ -288,6 +287,17 @@ class Preemptive(SchedulerType):
                     #alias "agePcb2"
                     self._readyQueue2[index].remove(pcb2)
                     self._readyQueue2[index-1].append(pcb2)
+
+class RoundRobin(SchedulerType):
+
+    def __init__(self, quantumValue):
+        HARDWARE.timer.quantum = quantumValue
+
+    def add(self, pcb):
+        self._readyQueue.enqueue(pcb)
+
+    def getNext(self):
+        return self._readyQueue.dequeue()
 
 class ReadyQueue():
 
@@ -457,6 +467,31 @@ class IoOutInterruptionHandler(AbstractInterruptionHandler):
 
         log.logger.info(self.kernel.ioDeviceController)
 
+class TimeoutInterruptionHandler(AbstractInterruptionHandler):
+    # asumimos que el scheduler es RoundRobin porque solo ese scheduler setea el quantum (activa el Timer)
+    def execute(self, irq):
+        log.logger.info(" Timeout interruption ")
+        # si la ready queue esta vacia, reseteo el timer y nada mas
+        scheduler = self.kernel.scheduler
+        if (scheduler.isEmpty()):
+            HARDWARE.timer.reset()
+        else:
+            pcbTable = self.kernel.pcbTable
+            runningPCB = pcbTable.runningPCB
+            runningPCB.state = READY_STATE
+            self.kernel.dispatcher.save(runningPCB)
+            scheduler.add(runningPCB)
+
+            pcbToExecute = scheduler.getNext()
+            pcbToExecute.state = RUNNING_STATE
+            self.kernel.dispatcher.load(pcbToExecute)
+            pcbTable.runningPCB = pcbToExecute
+
+            print("Expropio, saco el pcb " + str(runningPCB.id))
+            print("Y pongo el pcb " + str(pcbToExecute.id))
+        # caso contrario:
+        # sacar el pcb running y pasarlo a ready
+        # agarrar un pcb de la ready queue y pasarlo a running
 
 class Loader():
 
@@ -482,6 +517,7 @@ class Dispatcher():
     def load(self, pcb):
         HARDWARE.cpu.pc = pcb.pc
         HARDWARE.mmu.baseDir = pcb.baseDir
+        HARDWARE.timer.reset()
 
     def save(self, pcb):
         pcb.pc = HARDWARE.cpu.pc
@@ -503,6 +539,9 @@ class Kernel():
 
         newHandler = NewInterruptionHandler(self)
         HARDWARE.interruptVector.register(NEW_INTERRUPTION_TYPE, newHandler)
+
+        timeoutHandler = TimeoutInterruptionHandler(self)
+        HARDWARE.interruptVector.register(TIMEOUT_INTERRUPTION_TYPE, timeoutHandler)
 
         ## controls the Hardware's I/O Device
         self._ioDeviceController = IoDeviceController(HARDWARE.ioDevice)
@@ -537,7 +576,7 @@ class Kernel():
         return self._dispatcher
 
     def setupScheduler(self, schedulerType):
-        self._scheduler = Scheduler(self, schedulerType)
+        self._scheduler = Scheduler(schedulerType)
 
     ## emulates a "system call" for programs execution
     def run(self, program, priority = None):
