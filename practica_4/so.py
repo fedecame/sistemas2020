@@ -170,14 +170,7 @@ class SchedulerType():
 
     # definido para imprimir las ready queues del gant
     def getReadyQueueReflection(self):
-        if self.isEmpty() and len(self._readyQueue.queue) == 0:
-            return ["asd"]
-        elif len(self._readyQueue.queue) == 0:
-            print("~~~~~~~ No tiene sentido que se imprima esto ~~~~~~~~")
-            return []
-        else:
-            print("primer elemento de la queue:"+str(self._readyQueue.queue[0]))
-            return list(self._readyQueue.queue)
+        return list(self._readyQueue.queue)
 
 class FCFS(SchedulerType):
 
@@ -226,6 +219,10 @@ class NonPreemptive(SchedulerType):
                     #alias "agePcb2"
                     self._readyQueue2[index].remove(pcb2)
                     self._readyQueue2[index-1].append(pcb2)
+                    
+    # # definido para imprimir las ready queues del gant
+    # def getReadyQueueReflection(self):
+    #     return list(self._readyQueue.queue)
 
 class Preemptive(SchedulerType):
 
@@ -268,6 +265,10 @@ class Preemptive(SchedulerType):
                     #alias "agePcb2"
                     self._readyQueue2[index].remove(pcb2)
                     self._readyQueue2[index-1].append(pcb2)
+
+    # # definido para imprimir las ready queues del gant
+    # def getReadyQueueReflection(self):
+    #     return list(self._readyQueue.queue)
 
 class RoundRobin(SchedulerType):
 
@@ -480,7 +481,7 @@ class StatsInterruptionHandler(AbstractInterruptionHandler):
 
         runningPCB = self.kernel.pcbTable.runningPCB
         # ASUMIENDO que nunca hay instrucciones de IO (como en los ejemplos vistos), cuando no haya un pcb en running es que ya terminaron de ejecutarse todos los pcbs
-        if runningPCB is None:
+        if runningPCB is None: #and 'no hay nadie en waiting queue'
             # _listaDeListas = " cada lista interna representa una fila, osea un proceso "
             _listaDeListas = []
             procesos = set(gantProcesses)
@@ -544,9 +545,7 @@ class StatsInterruptionHandler(AbstractInterruptionHandler):
 
             for readyQueue in gantReadyQueues:
                 for pcb in readyQueue:
-                    print("~~~~~~~~~~~~~~~~~~ VAMOS LOS PIBES ~~~~~~~~~~~~~~~~~~~~~")
-                    # readyQueuesImprimible[readyQueue.index(pcb)].append(pcb.id)
-                    readyQueuesImprimible[readyQueue.index(pcb)].append("X")
+                    readyQueuesImprimible[readyQueue.index(pcb)].append(pcb.id)
 
                 rellenaEspacios(len(readyQueuesImprimible) - len(readyQueue))
             #aca ya esta lista para imprimirse la lista
