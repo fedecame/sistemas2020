@@ -13,17 +13,14 @@ if __name__ == '__main__':
     ## setup our hardware and set memory size to 25 "cells"
     HARDWARE.setup(30)
 
-    ## Switch on computer
-    HARDWARE.switchOn()
-
     ## new create the Operative System Kernel
     # "booteamos" el sistema operativo
     kernel = Kernel(printGant = True)
 
     # kernel.setupScheduler(FCFS())
     # kernel.setupScheduler(NonPreemptive(3))
-    kernel.setupScheduler(Preemptive(3))
-    # kernel.setupScheduler(RoundRobin(3))
+    # kernel.setupScheduler(Preemptive(3))
+    kernel.setupScheduler(RoundRobin(3))
 
     # Ahora vamos a intentar ejecutar 3 programas a la vez
     ##################
@@ -39,3 +36,8 @@ if __name__ == '__main__':
     kernel.run(prg1, 2)
     kernel.run(prg2, 2)
     kernel.run(prg3, 1)
+
+
+    ## Switch on computer
+    ## Pasamos el switchOn aca abajo, porque teniamos problemas de concurrencia (race conditions) con el Thread del Clock y los profes aconsejaron este workaround
+    HARDWARE.switchOn()
