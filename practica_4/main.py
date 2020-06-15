@@ -19,8 +19,8 @@ if __name__ == '__main__':
 
     # kernel.setupScheduler(FCFS())
     # kernel.setupScheduler(NonPreemptive(3))
-    # kernel.setupScheduler(Preemptive(3))
-    kernel.setupScheduler(RoundRobin(3))
+    kernel.setupScheduler(Preemptive(3))
+    # kernel.setupScheduler(RoundRobin(3))
 
     # Ahora vamos a intentar ejecutar 3 programas a la vez
     ##################
@@ -28,9 +28,13 @@ if __name__ == '__main__':
     # prg2 = Program("prg2.exe", [ASM.IO(), ASM.CPU(7)])
     # prg3 = Program("prg3.exe", [ASM.IO(), ASM.CPU(4), ASM.IO(), ASM.CPU(1)])
 
-    prg1 = Program("prg1.exe", [ASM.CPU(2)])
-    prg2 = Program("prg2.exe", [ASM.CPU(4)])
-    prg3 = Program("prg3.exe", [ASM.CPU(3)])
+    prg1 = Program("prg1.exe", [ASM.IO(), ASM.CPU(2), ASM.CPU(2)])
+    prg2 = Program("prg2.exe", [ASM.IO(), ASM.CPU(3)])
+    prg3 = Program("prg3.exe", [ASM.IO(), ASM.CPU(1)])
+
+    # prg1 = Program("prg1.exe", [ASM.CPU(2)])
+    # prg2 = Program("prg2.exe", [ASM.CPU(4)])
+    # prg3 = Program("prg3.exe", [ASM.CPU(3)])
 
     # execute all programs "concurrently"
     kernel.run(prg1, 2)
