@@ -152,6 +152,10 @@ class Scheduler():
     def mustExpropiate(self, pcbInCPU, pcbToAdd):
         return self._schedulerType.mustExpropiate(pcbInCPU, pcbToAdd)
 
+    # definido para imprimir las ready queues del gant
+    def getReadyQueueReflection(self):
+        return self._schedulerType.getReadyQueueReflection()
+
 class SchedulerType():
 
     def setup(self, readyQueue):
@@ -163,6 +167,10 @@ class SchedulerType():
 
     def mustExpropiate(self, pcbInCPU, pcbToAdd):
         return False
+
+    # definido para imprimir las ready queues del gant
+    def getReadyQueueReflection(self):
+        return list(self._readyQueue.queue)
 
 class FCFS(SchedulerType):
 
@@ -211,6 +219,15 @@ class NonPreemptive(SchedulerType):
                     #alias "agePcb2"
                     self._readyQueue2[index].remove(pcb2)
                     self._readyQueue2[index-1].append(pcb2)
+                    
+    # # definido para imprimir las ready queues del gant
+    def getReadyQueueReflection(self):
+        # aplanar la readyQueue2
+        flattened = []
+        for ls in self._readyQueue2:
+            flattened.extend(ls)
+
+        return flattened
 
 class Preemptive(SchedulerType):
 
@@ -254,6 +271,15 @@ class Preemptive(SchedulerType):
                     self._readyQueue2[index].remove(pcb2)
                     self._readyQueue2[index-1].append(pcb2)
 
+    # # definido para imprimir las ready queues del gant
+    def getReadyQueueReflection(self):
+        # aplanar la readyQueue2
+        flattened = []
+        for ls in self._readyQueue2:
+            flattened.extend(ls)
+
+        return flattened
+
 class RoundRobin(SchedulerType):
 
     def __init__(self, quantumValue):
@@ -278,6 +304,10 @@ class ReadyQueue():
 
     def isEmpty(self):
         return len(self._queue) == 0
+
+    @property
+    def queue(self):
+        return self._queue
 
 ## emulates an Input/Output device controller (driver)
 class IoDeviceController():
@@ -310,6 +340,15 @@ class IoDeviceController():
             self._currentPCB = pcb
             self._device.execute(instruction)
 
+    # usado para el Gant
+    @property
+    def currentPCB(self):
+        return self._currentPCB
+
+    # usado para el Gant
+    @property
+    def waitingQueue(self):
+        return list(self._waiting_queue)
 
     def __repr__(self):
         return "IoDeviceController for {deviceID} running: {currentPCB} waiting: {waiting_queue}".format(deviceID=self._device.deviceId, currentPCB=self._currentPCB, waiting_queue=self._waiting_queue)
@@ -457,16 +496,27 @@ class StatsInterruptionHandler(AbstractInterruptionHandler):
     # asumimos que el scheduler es RoundRobin porque solo ese scheduler setea el quantum (activa el Timer)
     def execute(self, irq):
         gantProcesses = self.kernel.gantProcesses
+        gantReadyQueue = self.kernel.gantReadyQueue
+        gantWaitingQueue = self.kernel.gantWaitingQueue
 
         runningPCB = self.kernel.pcbTable.runningPCB
+        ioDeviceController = self.kernel.ioDeviceController
         # ASUMIENDO que nunca hay instrucciones de IO (como en los ejemplos vistos), cuando no haya un pcb en running es que ya terminaron de ejecutarse todos los pcbs
-        if runningPCB is None:
+        if (runningPCB is None and ioDeviceController.currentPCB is None): #and 'no hay nadie en waiting queue'
             # _listaDeListas = " cada lista interna representa una fila, osea un proceso "
             _listaDeListas = []
-            procesos = set(gantProcesses)
+            procesosPrev = set(gantProcesses)
+
+            def retornoSiEsNumero(elem):
+                if type(elem) is int:
+                    return True
+                else:
+                    return False
+            # filtro y dejo los elementos que son numeros (osea ids de pcbs)
+            procesos = list(filter(retornoSiEsNumero, procesosPrev))
+
             for x in procesos:
                 _listaDeListas.append([])
-            
             # aca ya tenemos las listas (vacias) creadas
 
             def agregaUnTickASublistas(lss, pcbId):
@@ -480,16 +530,17 @@ class StatsInterruptionHandler(AbstractInterruptionHandler):
 
             for pcbId in gantProcesses:
                 agregaUnTickASublistas(_listaDeListas, pcbId)
-
             # aca ya tengo las listas cargadas con 55s y "."s
 
             def mapea55sAInstruccionesRestantes(ls):
                 cantidadDeInstrucciones = ls.count(55)
                 listaARetornar = []
                 for instr in ls:
-                    if (instr == 55):
+                    if instr == 55:
                         listaARetornar.append(cantidadDeInstrucciones)
                         cantidadDeInstrucciones -= 1
+                    elif cantidadDeInstrucciones == 0:
+                        listaARetornar.append("")
                     else:
                         listaARetornar.append(".")
                 return listaARetornar
@@ -501,11 +552,151 @@ class StatsInterruptionHandler(AbstractInterruptionHandler):
 
             listaDeHeaders = list(range(len(gantProcesses)))
             listaDeHeaders.insert(0, "Proceso")
+
             print(tabulate(_listaDeListas, headers=listaDeHeaders, showindex=list(range(1, len(procesos)+1)), tablefmt="fancy_grid"))
+            # aca se imprimio el cuadro de los procesos del Gant
+
+            # ARRANCAMOS A CREAR IMPRESION READY QUEUE GANTT
+            def transformaNumeroEnPosicionStr(numero):
+                return str(numero)+"°"
+
+            listaDeHeaders.remove("Proceso")
+            listaDeHeaders.insert(0, "Ready Q")
+            listaDeIndices = list(map(transformaNumeroEnPosicionStr, list(range(1, len(procesos)))))
+
+            readyQueuesImprimible = []
+            for x in procesos:
+                readyQueuesImprimible.append([])
+            readyQueuesImprimible.pop(0)
+            # aca ya tenemos las listas (vacias) creadas
+
+            def rellenaEspacios(cantidadDeEspaciosARellenar, listaARellenar):
+                cant = cantidadDeEspaciosARellenar
+                while cant > 0:
+                    listaARellenar[-cant].append("")
+                    cant -= 1
+
+            for readyQueue in gantReadyQueue:
+                for pcb in readyQueue:
+                    readyQueuesImprimible[readyQueue.index(pcb)].append(pcb.id)
+
+                rellenaEspacios(len(readyQueuesImprimible) - len(readyQueue), readyQueuesImprimible)
+            #aca ya esta lista para imprimirse la lista
+            
+            print(tabulate(readyQueuesImprimible, headers=listaDeHeaders, showindex=listaDeIndices, tablefmt="fancy_grid"))
+
+            # ARRANCAMOS A CREAR IMPRESION WAITING QUEUE GANTT
+            listaDeHeaders.remove("Ready Q")
+            listaDeHeaders.insert(0, "Wait  Q")
+            listaDeIndices = list(map(transformaNumeroEnPosicionStr, list(range(1, len(procesos)))))
+
+            waitingQueuesImprimible = []
+            for x in procesos:
+                waitingQueuesImprimible.append([])
+            waitingQueuesImprimible.pop(0)
+            # aca ya tenemos las listas (vacias) creadas
+
+            for waitingQueue in gantWaitingQueue:
+                for pcb in waitingQueue:
+                    waitingQueuesImprimible[waitingQueue.index(pcb)].append(pcb.id)
+
+                rellenaEspacios(len(waitingQueuesImprimible) - len(waitingQueue), waitingQueuesImprimible)
+            #aca ya esta lista para imprimirse la lista
+            
+            print(tabulate(waitingQueuesImprimible, headers=listaDeHeaders, showindex=listaDeIndices, tablefmt="fancy_grid"))
+
+            # ARRANCAMOS A CREAR IMPRESION TOTALES Y PROMEDIOS GANTT
+
+            filasPromediosYTotales = []
+            for x in procesos:
+                filasPromediosYTotales.append([])
+            for x in range(3):
+                filasPromediosYTotales.append([])
+            # aca ya tenemos las listas (vacias) creadas
+
+            headersPromediosYTotales = ["Proceso", "T. Espera", "T. Retorno"]
+
+            indicesPromediosYTotales = list(range(1, len(procesos)+1))
+            indicesPromediosYTotales.extend(["--------", "TOTALES", "PROMEDIO"])
+
+            def aplanarListaDeListas(listaDeListas):
+                flattened = []
+                for ls in listaDeListas:
+                    flattened.extend(ls)
+                
+                return flattened
+
+            def cuentaAparacionesEnReadyQueue(pcbId):
+                readyQueueAplanada = aplanarListaDeListas(readyQueuesImprimible)
+                return readyQueueAplanada.count(pcbId)
+
+            def average(ns):
+                return round(sum(ns)/len(ns), 2)
+
+            # TIEMPO DE ESPERA
+            tiemposDeEspera = []
+
+            for pcbId in procesos:
+                tiempoDeEspera = cuentaAparacionesEnReadyQueue(pcbId)
+                tiemposDeEspera.append(tiempoDeEspera)
+                filasPromediosYTotales[procesos.index(pcbId)].append(tiempoDeEspera)
+
+            def noEsStringVacio(elem):
+                if (elem == ""):
+                    return False
+                else:
+                    return True
+
+            def cuentaCeldasNoVaciasEnListaDeProcesosTotales(pcbId):
+                return len(list(filter(noEsStringVacio, _listaDeListas[pcbId-1])))
+
+            # TIEMPO DE RETORNO
+            tiemposDeRetorno = []
+
+            for pcbId in procesos:
+                tiempoDeRetorno = cuentaCeldasNoVaciasEnListaDeProcesosTotales(pcbId)
+                tiemposDeRetorno.append(tiempoDeRetorno)
+                filasPromediosYTotales[procesos.index(pcbId)].append(tiempoDeRetorno)
+
+            # TOTALES Y PROMEDIOS
+            filasPromediosYTotales[len(procesos)].append("---------")
+            filasPromediosYTotales[len(procesos)].append("---------")
+
+            # TOTALES
+            filasPromediosYTotales[len(procesos)+1].append(sum(tiemposDeEspera))
+            filasPromediosYTotales[len(procesos)+1].append(sum(tiemposDeRetorno))
+
+            # PROMEDIOS
+            filasPromediosYTotales[len(procesos)+2].append(average(tiemposDeEspera))
+            filasPromediosYTotales[len(procesos)+2].append(average(tiemposDeRetorno))
+
+            print(tabulate(filasPromediosYTotales, headers=headersPromediosYTotales, showindex=indicesPromediosYTotales, tablefmt="fancy_grid"))
+
+
+            # Para el tiempo de espera:
+            # recorrer la ready queue y buscar la cantidad de apariciones del pcbId correspondiente.
+            # (si pinta y hay tiempo, hacer lo mismo para la waiting queue)
+
+            # Para el tiempo de retorno:
+            # recorrer la lista del proceso en la _listaDeListas y contar todas las celdas q no estan vacias (osea distintas de "")
+
 
             HARDWARE.switchOff()
         else:
-            gantProcesses.append(runningPCB.id)
+            # 3 escenario posibles:
+            # 1) hay runningPcb y hay waitingPCB
+            # 2) hay runningPcb y NO hay waitingPCB
+            # 3) NO hay runningPcb y SI hay waitingPCB
+
+            def agarraPcbDelPair(pairConPcb):
+                return pairConPcb['pcb']
+
+            if (runningPCB is not None):
+                gantProcesses.append(runningPCB.id)
+            else:
+                gantProcesses.append("NoEsUnPCBIdValido")
+            gantReadyQueue.append(self.kernel.scheduler.getReadyQueueReflection())
+            gantWaitingQueue.append(list(map(agarraPcbDelPair, ioDeviceController.waitingQueue)))
 
 class Loader():
 
@@ -568,6 +759,8 @@ class Kernel():
         self._pcbTable = PCBTable()
         self._dispatcher = Dispatcher()
         self._gantProcesses = []
+        self._gantReadyQueues = []
+        self._gantWaitingQueue = []
 
     @property
     def ioDeviceController(self):
@@ -592,6 +785,14 @@ class Kernel():
     @property
     def gantProcesses(self):
         return self._gantProcesses
+
+    @property
+    def gantReadyQueue(self):
+        return self._gantReadyQueues
+            
+    @property
+    def gantWaitingQueue(self):
+        return self._gantWaitingQueue
 
     def setupScheduler(self, schedulerType):
         self._scheduler = Scheduler(schedulerType)
