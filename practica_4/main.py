@@ -18,8 +18,8 @@ if __name__ == '__main__':
     kernel = Kernel(printGant = True)
 
     # kernel.setupScheduler(FCFS())
-    # kernel.setupScheduler(NonPreemptive(3))
-    kernel.setupScheduler(Preemptive(3))
+    # kernel.setupScheduler(PriorityNonPreemptive(3))
+    kernel.setupScheduler(PriorityPreemptive(3))
     # kernel.setupScheduler(RoundRobin(3))
 
     # Ahora vamos a intentar ejecutar 3 programas a la vez
