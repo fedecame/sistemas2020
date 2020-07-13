@@ -53,34 +53,26 @@ class Program():
 
 class PCB():
 
-    def __init__(self, id, baseDir, path, priority = None):
+    def __init__(self, id, path, priority = None):
         self._id = id
-        self._baseDir = baseDir
-        self._path = path
         self._estado = NEW_STATE
         self._pc = 0
+        self._path = path
         self._priority = priority
         self._burstTime = 0 #tiempo que esta en la ready queue
+        self._limit = 0
 
     @property
     def id(self):
         return self._id
-
-    @property
-    def baseDir(self):
-        return self._baseDir
-
-    @baseDir.setter
-    def baseDir(self, baseDir):
-        self._baseDir = baseDir
-
-    @property
-    def path(self):
-        return self._path
     
     @property
     def estado(self):
         return self._estado
+
+    @property
+    def path(self):
+        return self._path
 
     @estado.setter
     def estado(self, estado):
@@ -105,6 +97,14 @@ class PCB():
     @burstTime.setter
     def burstTime(self, burstTime):
         self._burstTime = burstTime
+
+    @property
+    def limit(self):
+        return self._limit
+
+    @limit.setter
+    def limit(self, limit):
+        self._limit = limit
 
 class PCBTable():
     
@@ -324,19 +324,20 @@ class NewInterruptionHandler(AbstractInterruptionHandler):
     def execute(self, irq):
         pcbTable = self.kernel.pcbTable
         log.logger.info(" Program started ")
-        program = irq.parameters[0]
+        path = irq.parameters[0]
         priority = irq.parameters[1]
-        baseDir = self.kernel.loader.load(program)
         pcbId = pcbTable.getNewPID()
-        pcb = PCB(pcbId, baseDir, program.name, priority)
+        pcb = PCB(pcbId, path, priority)
+        self.kernel.loader.load(pcb)
         pcbTable.add(pcb)
 
         scheduler = self.kernel.scheduler
         runningPCB2 = pcbTable.runningPCB
+        pageTable = self.kernel.memoryManager.getPageTable(pcb.id)
         if (runningPCB2 is None):
             pcb.state = RUNNING_STATE
             pcbTable.runningPCB = pcb
-            self.kernel.dispatcher.load(pcb)
+            self.kernel.dispatcher.load(pcb, pageTable)
         else:
             if (scheduler.mustExpropiate(runningPCB2, pcb)):
                 self.kernel.dispatcher.save(runningPCB2)
@@ -348,7 +349,7 @@ class NewInterruptionHandler(AbstractInterruptionHandler):
 
                 pcb.state = RUNNING_STATE
                 pcbTable.runningPCB = pcb
-                self.kernel.dispatcher.load(pcb)
+                self.kernel.dispatcher.load(pcb, pageTable)
             else:
                 pcb.state = READY_STATE
                 scheduler.add(pcb)
@@ -363,12 +364,19 @@ class KillInterruptionHandler(AbstractInterruptionHandler):
         pcbTerminated.state = TERMINATED_STATE
         pcbTable.remove(pcbTerminated.id)
         scheduler = self.kernel.scheduler
+        memoryManager = self.kernel.memoryManager
 
+        # borrar pageTable y liberar los frames correspondientes
+        mayBePageTable = memoryManager.deletePagetable(pcbTerminated.id)
+        if mayBePageTable is not None:
+            memoryManager.freeFrames(mayBePageTable.values())
+        
         if (not scheduler.isEmpty()):
             nextPcb = scheduler.getNext()
             nextPcb.state = RUNNING_STATE
             pcbTable.runningPCB = nextPcb
-            self.kernel.dispatcher.load(nextPcb)
+            pageTable = memoryManager.getPageTable(nextPcb.id)
+            self.kernel.dispatcher.load(nextPcb, pageTable)
         else:
             pcbTable.runningPCB = None
 
@@ -387,7 +395,8 @@ class IoInInterruptionHandler(AbstractInterruptionHandler):
             nextPcb = scheduler.getNext()
             nextPcb.state = RUNNING_STATE
             pcbTable.runningPCB = nextPcb
-            self.kernel.dispatcher.load(nextPcb)
+            pageTable = self.kernel.memoryManager.getPageTable(nextPcb.id)
+            self.kernel.dispatcher.load(nextPcb, pageTable)
         else:
             pcbTable.runningPCB = None
         
@@ -402,9 +411,10 @@ class IoOutInterruptionHandler(AbstractInterruptionHandler):
         scheduler = self.kernel.scheduler
         pcbTable = self.kernel.pcbTable
         runningPCB2 = pcbTable.runningPCB
+        pageTable = self.kernel.memoryManager.getPageTable(pcb.id)
         if (runningPCB2 is None):
             pcb.state = RUNNING_STATE
-            self.kernel.dispatcher.load(pcb)
+            self.kernel.dispatcher.load(pcb, pageTable)
             pcbTable.runningPCB = pcb
         else:
             # scheduler = self.kernel.scheduler
@@ -417,7 +427,7 @@ class IoOutInterruptionHandler(AbstractInterruptionHandler):
                 print("Y pongo el pcb " + str(pcb.id))
 
                 pcb.state = RUNNING_STATE
-                self.kernel.dispatcher.load(pcb)
+                self.kernel.dispatcher.load(pcb, pageTable)
                 pcbTable.runningPCB = pcb
             else:
                 pcb.state = READY_STATE
@@ -441,7 +451,8 @@ class TimeoutInterruptionHandler(AbstractInterruptionHandler):
 
             pcbToExecute = scheduler.getNext()
             pcbToExecute.state = RUNNING_STATE
-            self.kernel.dispatcher.load(pcbToExecute)
+            pageTable = self.kernel.memoryManager.getPageTable(pcbToExecute.id)
+            self.kernel.dispatcher.load(pcbToExecute, pageTable)
             pcbTable.runningPCB = pcbToExecute
             print("Expropio, saco el pcb " + str(runningPCB.id))
             print("Y pongo el pcb " + str(pcbToExecute.id))
@@ -629,11 +640,10 @@ class StatsInterruptionHandler(AbstractInterruptionHandler):
 
             # Para el tiempo de espera:
             # recorrer la ready queue y buscar la cantidad de apariciones del pcbId correspondiente.
-            # (si pinta y hay tiempo, hacer lo mismo para la waiting queue)
+            # (si hay tiempo, hacer lo mismo para la waiting queue)
 
             # Para el tiempo de retorno:
             # recorrer la lista del proceso en la _listaDeListas y contar todas las celdas q no estan vacias (osea distintas de "")
-
 
             HARDWARE.switchOff()
         else:
@@ -682,10 +692,57 @@ class Dispatcher():
         pcb.pc = HARDWARE.cpu.pc
         HARDWARE.cpu.pc = -1
 
+class MemoryManager():
+
+    def __init__(self, frameSize):
+        self._framesfree = []
+        self._frameSize = frameSize
+        self._pageTables = dict()
+        self.inicializar(HARDWARE.memory.size // frameSize)
+
+    @property
+    def framesFree(self):
+        return self._framesfree
+
+    @property
+    def frameSize(self):
+        return self._frameSize
+
+    @property
+    def pageTables(self):
+        return self._pageTables
+
+    def inicializar(self, framesAmount):
+        # setea la lista de frames (osea ids) con la cantidad correspondiente
+        for x in range(framesAmount):
+            self._framesfree.append(x)
+
+    def putPageTable(self, pid, pageTable):
+        self._pageTables[pid] = pageTable
+
+    def getPageTable(self, pid):
+        return self._pageTables[pid]
+
+    def deletePagetable(self, pid):
+        return self._pageTables.pop(pid, None)
+
+    def allocFrames(self, n):
+        framesOccuppied = []
+        if (n > len(self._framesfree)):
+            raise Exception("\n* WARNING \n*\n Warning No hay suficiente espacio en memoria para alocar {cantFrames} paginas.".format(cantFrames = n))
+        else:
+            for m in range(n):
+                framesOccuppied.append(self._framesfree.pop())
+
+        return framesOccuppied
+
+    def freeFrames(self, frames):
+        self._framesfree.extend(frames)
+
 # emulates the core of an Operative System
 class Kernel():
 
-    def __init__(self, printGant = False):
+    def __init__(self, printGant = False, frameSize = 4):
         HARDWARE.cpu.enable_stats = printGant
 
         ## setup interruption handlers
@@ -707,9 +764,12 @@ class Kernel():
         statsHandler = StatsInterruptionHandler(self)
         HARDWARE.interruptVector.register(STAT_INTERRUPTION_TYPE, statsHandler)
 
-        ## controls the Hardware's I/O Device
+        HARDWARE.mmu.frameSize = frameSize
+
+        self._fileSystem = FileSystem()
+        self._memoryManager = MemoryManager(frameSize)
+        self._loader = Loader(frameSize, self._fileSystem, self._memoryManager)
         self._ioDeviceController = IoDeviceController(HARDWARE.ioDevice)
-        self._loader = Loader()
         self._pcbTable = PCBTable()
         self._dispatcher = Dispatcher()
         self._gantProcesses = []
@@ -748,12 +808,21 @@ class Kernel():
     def gantWaitingQueue(self):
         return self._gantWaitingQueue
 
+    @property
+    def fileSystem(self):
+        return self._fileSystem
+
+    @property
+    def memoryManager(self):
+        return self._memoryManager
+
     def setupScheduler(self, schedulerType):
         self._scheduler = Scheduler(schedulerType)
 
     ## emulates a "system call" for programs execution
-    def run(self, program, priority = None):
-        self.newIRQ = IRQ(NEW_INTERRUPTION_TYPE, [program, priority])
+    def run(self, path, priority = None):
+        program = self.fileSystem.read(path)
+        self.newIRQ = IRQ(NEW_INTERRUPTION_TYPE, [path, priority])
         HARDWARE.interruptVector.handle(self.newIRQ)
 
         log.logger.info("\n Executing program: {name}".format(name=program.name))
