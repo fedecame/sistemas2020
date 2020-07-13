@@ -664,24 +664,98 @@ class StatsInterruptionHandler(AbstractInterruptionHandler):
 
 class Loader():
 
-    def __init__(self):
-        self._nextPC = 0
+    def __init__(self, pageSize, fileSystem, memoryManager):
+        self._pageSize = pageSize
+        self._fileSystem = fileSystem
+        self._memoryManager = memoryManager
 
     # loads the program in main memory
-    def load(self, program):
-        progSize = len(program.instructions)
+    def load(self, pcb):
+        # obtener el programa desde FileSystem
+        program = self._fileSystem.read(pcb.path)
 
-        baseDir = self._nextPC
+        # paginar programa
+        ################# SI HAY TIEMPO LLEVAR ESTO A SUBTAREA ##########################
+        paginas = []
+        paginaTemp = []
+        contador = 0
 
-        self._nextPC = baseDir + progSize
+        for instr in program.instructions:
+            if (contador == self._pageSize):
+                paginas.append(paginaTemp)
+                paginaTemp = [instr]
+                contador = 1
+            else:
+                paginaTemp.append(instr)
+                contador += 1
 
-        for index in range(0, progSize):
-            inst = program.instructions[index]
-            HARDWARE.memory.write(index+baseDir, inst)
-        
-        return baseDir
+        if (paginaTemp):
+            paginas.append(paginaTemp)
+        ################# SI HAY TIEMPO LLEVAR LO ANTERIOR A SUBTAREA ###################
+
+        # validar que hay espacio en memoria para cargar el programa
+        # try:
+            framesAllocated = self._memoryManager.allocFrames(len(paginas))
+        # except expression as identifier:
+            # manejar el caso en que el proceso no se puede guardar porque falta espacio en memoria.
+            # (posible solucion: agregar a una cola de scheduler de largo plazo al proceso q no entro en memoria)
+
+        # crear pageTable
+        pageTable = dict()
+        for pageId, frameId in zip(range(len(paginas)), framesAllocated):
+            pageTable[pageId] = frameId
+
+        # escribo en memoria las instrucciones
+        pagesAmount = HARDWARE.memory.size // self._pageSize
+        for page, pageId in zip(paginas, range(len(paginas))):
+            # pararme en el "baseDir" correspondiente al frame
+            frameId = pageTable[pageId] # el frame correspondiente a la pagina actual
+            baseDirDelFrame = frameId * self._pageSize
+
+            # escribo las instrucciones de la pagina en el frame correspondiente
+            for instr in page:
+                HARDWARE.memory.write(baseDirDelFrame, instr)
+                baseDirDelFrame += 1
+
+        # seteo el limite del proceso actual en el PCB
+        pcb.limit = len(program.instructions) - 1 # porque en hardware compara con ">" en lugar de ">="
+
+        # pasar la pageTable al MemoryManager
+        self._memoryManager.putPageTable(pcb.id, pageTable)
 
 class Dispatcher():
+
+    def load(self, pcb, pageTableDelPCB):
+        HARDWARE.cpu.pc = pcb.pc
+        HARDWARE.mmu.limit = pcb.limit
+        HARDWARE.mmu.resetTLB()
+        for pageId, frameId in zip(pageTableDelPCB.keys(), pageTableDelPCB.values()):
+            HARDWARE.mmu.setPageFrame(pageId, frameId)
+        HARDWARE.timer.reset()
+
+    def save(self, pcb):
+        pcb.pc = HARDWARE.cpu.pc
+        HARDWARE.cpu.pc = -1
+
+class FileSystem():
+
+    def __init__(self):
+        self._files = dict()
+
+    @property
+    def files(self):
+        return self._files
+
+    def write(self, path, prog):
+        self._files[path] = prog
+
+    def read(self, path):
+        try:
+            program = self._files[path]
+        except:
+            raise Exception("\n*\n* ERROR \n*\n Error en el FileSystem\nNo se encuentra la ruta {path}".format(path = path))
+
+        return program
 
     def load(self, pcb):
         HARDWARE.cpu.pc = pcb.pc
