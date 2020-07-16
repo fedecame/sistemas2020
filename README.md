@@ -41,3 +41,8 @@ PD: Tambien prodrian haber reutilizado el codigo si  PriorityPreemptive fuese su
 
 OK
 
+Esta muy bien este check :
+           raise Exception("\n* WARNING \n*\n Warning No hay suficiente espacio en memoria para alocar {cantFrames} paginas.".format(cantFrames = n))
+ 
+
+
