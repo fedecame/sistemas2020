@@ -34,3 +34,10 @@ Porque Preemtive es una caracteristica del Algoritmo (existen varios algoritmos 
 
 PD: Tambien prodrian haber reutilizado el codigo si  PriorityPreemptive fuese subclase de PriorityNonPreemptive (solo habria que overridear el metodo mustExpropiate())  
     
+
+
+
+# Practica 5
+
+OK
+
